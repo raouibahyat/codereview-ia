@@ -1,0 +1,376 @@
+'use client'
+import { useState, useEffect, useRef, useCallback } from 'react'
+
+interface RegisterData {
+  username: string
+  email: string
+  password: string
+  confirmPassword: string
+}
+
+export default function RegisterForm() {
+  const [form, setForm] = useState<RegisterData>({
+    username: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+  })
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState(false)
+  const [zoomed, setZoomed] = useState(false)
+
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const mouseRef = useRef({ x: 100, y: 100 })
+  const tRef = useRef(0)
+  const rafRef = useRef<number>(0)
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    if (form.password !== form.confirmPassword) {
+      setError('Les mots de passe ne correspondent pas')
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: form.username,
+          email: form.email,
+          password: form.password,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.message || 'Erreur inscription')
+      }
+      setSuccess(true)
+      setTimeout(() => { window.location.href = '/login' }, 1800)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erreur inscription')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    mouseRef.current = {
+      x: (e.clientX - rect.left) * (200 / rect.width),
+      y: (e.clientY - rect.top) * (200 / rect.height),
+    }
+  }, [])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')!
+    const W = 200, H = 200, CX = W / 2, CY = H / 2
+
+    function hexShape(cx: number, cy: number, r: number) {
+      ctx.beginPath()
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 - Math.PI / 6
+        i === 0 ? ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r)
+                : ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r)
+      }
+      ctx.closePath()
+    }
+
+    function roundRect(x: number, y: number, w: number, h: number, r: number) {
+      ctx.beginPath()
+      ctx.moveTo(x + r, y)
+      ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r)
+      ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
+      ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r)
+      ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r)
+      ctx.closePath()
+    }
+
+    function draw() {
+      tRef.current += 0.018
+      const t = tRef.current
+      const { x: mx, y: my } = mouseRef.current
+      ctx.clearRect(0, 0, W, H)
+
+      const pulse = 0.5 + 0.5 * Math.sin(t * 1.4)
+      const breathe = Math.sin(t * 0.7)
+
+      const bg = ctx.createRadialGradient(CX, CY, 10, CX, CY, 100)
+      bg.addColorStop(0, `rgba(52,211,153,${0.08 + 0.04 * pulse})`)
+      bg.addColorStop(1, 'rgba(8,11,18,0)')
+      ctx.fillStyle = bg
+      ctx.fillRect(0, 0, W, H)
+
+      // Orbiting particles (+ sign shape for "new user")
+      ctx.save()
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2 + t * 0.3
+        const r = 78 + Math.sin(t + i) * 6
+        const px = CX + Math.cos(angle) * r
+        const py = CY + Math.sin(angle) * r
+        const a = 0.08 + 0.06 * Math.sin(t * 2 + i)
+        ctx.strokeStyle = `rgba(52,211,153,${a})`
+        ctx.lineWidth = 0.8
+        // draw + symbol
+        ctx.beginPath(); ctx.moveTo(px - 5, py); ctx.lineTo(px + 5, py); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(px, py - 5); ctx.lineTo(px, py + 5); ctx.stroke()
+      }
+      ctx.restore()
+
+      const bodyY = CY + 30 + breathe * 2
+      ctx.save()
+      ctx.strokeStyle = `rgba(52,211,153,${0.5 + 0.2 * pulse})`
+      ctx.lineWidth = 1.2
+      ctx.fillStyle = 'rgba(15,20,40,0.9)'
+      roundRect(CX - 28, bodyY - 22, 56, 48, 8)
+      ctx.fill(); ctx.stroke()
+      // chest panel
+      ctx.strokeStyle = 'rgba(52,211,153,0.25)'; ctx.lineWidth = 0.7
+      roundRect(CX - 22, bodyY - 16, 44, 16, 4); ctx.stroke()
+      // energy crystal (emerald)
+      const gp = 0.6 + 0.4 * Math.sin(t * 2)
+      ctx.fillStyle = `rgba(52,211,153,${gp})`
+      ctx.beginPath(); ctx.arc(CX, bodyY + 10, 9, 0, Math.PI * 2); ctx.fill()
+      ctx.strokeStyle = `rgba(167,243,208,${gp})`; ctx.lineWidth = 1
+      ctx.beginPath(); ctx.arc(CX, bodyY + 10, 9, 0, Math.PI * 2); ctx.stroke()
+      ctx.fillStyle = `rgba(255,255,255,${0.3 * gp})`
+      ctx.beginPath(); ctx.arc(CX - 3, bodyY + 7, 4, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+
+      // Arms
+      ctx.save()
+      ctx.strokeStyle = 'rgba(16,185,129,0.6)'; ctx.lineWidth = 7; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.moveTo(CX - 28, bodyY - 10)
+      ctx.quadraticCurveTo(CX - 50, bodyY, CX - 46, bodyY + 22); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(CX + 28, bodyY - 10)
+      ctx.quadraticCurveTo(CX + 50, bodyY, CX + 46, bodyY + 22); ctx.stroke()
+      ctx.fillStyle = 'rgba(52,211,153,0.7)'
+      ctx.beginPath(); ctx.arc(CX - 46, bodyY + 22, 5, 0, Math.PI * 2); ctx.fill()
+      ctx.beginPath(); ctx.arc(CX + 46, bodyY + 22, 5, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+
+      // Neck
+      ctx.save()
+      ctx.strokeStyle = 'rgba(16,185,129,0.5)'; ctx.lineWidth = 10; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.moveTo(CX, bodyY - 22); ctx.lineTo(CX, bodyY - 36); ctx.stroke()
+      ctx.restore()
+
+      const headY = bodyY - 36
+      ctx.save()
+      ctx.fillStyle = '#0d1020'
+      ctx.strokeStyle = `rgba(52,211,153,${0.55 + 0.2 * pulse})`; ctx.lineWidth = 1.5
+      hexShape(CX, headY, 38); ctx.fill(); ctx.stroke()
+      ctx.strokeStyle = 'rgba(52,211,153,0.15)'; ctx.lineWidth = 0.7
+      hexShape(CX, headY, 30); ctx.stroke()
+      ctx.restore()
+
+      // Antennae
+      ctx.save()
+      ctx.strokeStyle = 'rgba(52,211,153,0.5)'; ctx.lineWidth = 1.2
+      ctx.beginPath(); ctx.moveTo(CX - 12, headY - 28); ctx.lineTo(CX - 20, headY - 48); ctx.stroke()
+      const la = 0.5 + 0.5 * Math.sin(t * 2.2)
+      ctx.fillStyle = `rgba(52,211,153,${la})`
+      ctx.beginPath(); ctx.arc(CX - 20, headY - 49, 4, 0, Math.PI * 2); ctx.fill()
+      ctx.beginPath(); ctx.moveTo(CX + 12, headY - 28); ctx.lineTo(CX + 20, headY - 50); ctx.stroke()
+      const ra = 0.5 + 0.5 * Math.sin(t * 2.2 + 1.2)
+      ctx.fillStyle = `rgba(99,102,241,${ra})`
+      ctx.beginPath(); ctx.arc(CX + 20, headY - 51, 4, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+
+      // Visor
+      ctx.save()
+      roundRect(CX - 26, headY - 12, 52, 22, 6)
+      ctx.fillStyle = 'rgba(8,11,18,0.95)'; ctx.fill()
+      ctx.strokeStyle = 'rgba(52,211,153,0.4)'; ctx.lineWidth = 0.8; ctx.stroke()
+      ctx.restore()
+
+      // Eyes
+      const eyes = [{ x: CX - 12, y: headY - 2 }, { x: CX + 12, y: headY - 2 }]
+      eyes.forEach((eye, i) => {
+        const dx = mx - eye.x, dy = my - eye.y
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1
+        const px2 = (dx / dist) * Math.min(dist * 0.2, 4)
+        const py2 = (dy / dist) * Math.min(dist * 0.2, 4)
+        ctx.save()
+        ctx.fillStyle = '#060810'; ctx.strokeStyle = 'rgba(52,211,153,0.5)'; ctx.lineWidth = 0.8
+        ctx.beginPath(); ctx.ellipse(eye.x, eye.y, 10, 10, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+        ctx.fillStyle = i === 0 ? 'rgba(52,211,153,0.9)' : 'rgba(99,102,241,0.9)'
+        ctx.beginPath(); ctx.arc(eye.x + px2, eye.y + py2, 5.5, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#020408'
+        ctx.beginPath(); ctx.arc(eye.x + px2, eye.y + py2, 2.5, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = 'rgba(255,255,255,0.6)'
+        ctx.beginPath(); ctx.arc(eye.x + px2 - 2, eye.y + py2 - 2, 1.5, 0, Math.PI * 2); ctx.fill()
+        ctx.restore()
+      })
+
+      // Mouth
+      ctx.save()
+      roundRect(CX - 18, headY + 12, 36, 10, 4)
+      ctx.fillStyle = 'rgba(8,11,18,0.9)'; ctx.fill()
+      ctx.strokeStyle = 'rgba(52,211,153,0.3)'; ctx.lineWidth = 0.7; ctx.stroke()
+      for (let b = 0; b < 7; b++) {
+        const bx = CX - 14 + b * 4.5
+        const bh = 2 + 5 * Math.abs(Math.sin(t * 4 + b * 0.8))
+        ctx.fillStyle = `rgba(52,211,153,${0.4 + 0.4 * Math.abs(Math.sin(t * 4 + b * 0.8))})`
+        ctx.fillRect(bx, headY + 17 - bh / 2, 3, bh)
+      }
+      ctx.restore()
+
+      // Ear ports
+      ctx.save()
+      ;[-1, 1].forEach(side => {
+        ctx.fillStyle = 'rgba(15,20,40,0.9)'
+        ctx.strokeStyle = 'rgba(52,211,153,0.4)'; ctx.lineWidth = 0.8
+        ctx.beginPath(); ctx.ellipse(CX + side * 34, headY, 5, 9, 0, 0, Math.PI * 2)
+        ctx.fill(); ctx.stroke()
+        ctx.fillStyle = `rgba(52,211,153,${0.3 + 0.3 * pulse})`
+        ctx.beginPath(); ctx.arc(CX + side * 34, headY, 2, 0, Math.PI * 2); ctx.fill()
+      })
+      ctx.restore()
+
+      rafRef.current = requestAnimationFrame(draw)
+    }
+
+    draw()
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [])
+
+  return (
+    <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-[#080b12]">
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage: `linear-gradient(rgba(52,211,153,0.04) 1px, transparent 1px),linear-gradient(90deg, rgba(52,211,153,0.04) 1px, transparent 1px)`,
+          backgroundSize: '36px 36px',
+          animation: 'gDrift 18s linear infinite',
+        }}
+      />
+
+      <div className="relative z-10 flex items-center gap-8 max-w-4xl w-full px-6">
+        {/* Avatar */}
+        <div className="hidden lg:flex flex-col items-center flex-1 gap-5">
+          <div className="relative">
+            {['-inset-4', '-inset-8', '-inset-14'].map((cls, idx) => (
+              <div key={idx} className={`absolute ${cls} rounded-full border pointer-events-none`}
+                style={{ borderColor: `rgba(52,211,153,${0.18 - idx * 0.05})`, animation: `hPulse 3s ease-in-out ${idx * 0.6}s infinite` }} />
+            ))}
+            <div onMouseMove={handleMouseMove} onClick={() => setZoomed(v => !v)}
+              className="relative w-56 h-56 rounded-full border cursor-pointer overflow-hidden flex items-center justify-center"
+              style={{
+                background: '#0b0e1a',
+                borderColor: zoomed ? 'rgba(52,211,153,0.9)' : 'rgba(52,211,153,0.4)',
+                transform: zoomed ? 'scale(1.14)' : 'scale(1)',
+                boxShadow: zoomed ? '0 0 50px rgba(52,211,153,0.3),0 0 100px rgba(52,211,153,0.1)' : 'none',
+                transition: 'all 0.4s cubic-bezier(0.34,1.56,0.64,1)',
+              }}>
+              <div className="absolute left-0 right-0 h-px pointer-events-none"
+                style={{ background: 'linear-gradient(90deg,transparent,rgba(52,211,153,0.7),transparent)', animation: 'scan 2.8s linear infinite' }} />
+              <canvas ref={canvasRef} width={200} height={200} />
+            </div>
+          </div>
+
+          <div className="flex gap-4">
+            {[{ label: 'READY', color: '#34d399', delay: '0s' }, { label: 'NEW_USER', color: '#818cf8', delay: '0.7s' }].map(({ label, color, delay }) => (
+              <div key={label} className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full" style={{ background: color, animation: `sBlink 2s ${delay} ease-in-out infinite` }} />
+                <span className="font-mono text-[9px] tracking-widest" style={{ color: `${color}b3` }}>{label}</span>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-center font-mono text-[11px] italic" style={{ color: 'rgba(100,116,139,0.6)', lineHeight: 1.6 }}>
+            <span style={{ color: 'rgba(52,211,153,0.6)' }}>+ </span>nouveau compte<br />
+            <span style={{ color: 'rgba(52,211,153,0.6)' }}>↑ </span>cliquez pour zoomer
+          </p>
+        </div>
+
+        <div className="hidden lg:block w-px self-stretch" style={{ background: 'linear-gradient(to bottom,transparent,rgba(30,37,53,0.8),transparent)' }} />
+
+        {/* Form */}
+        <div className="relative w-full max-w-sm rounded-2xl overflow-hidden"
+          style={{ background: 'rgba(11,14,26,0.96)', border: '1px solid rgba(30,37,53,0.9)', padding: '32px', animation: 'fReveal 0.7s cubic-bezier(0.16,1,0.3,1) 0.2s both' }}>
+          <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: 'linear-gradient(90deg,transparent,#34d399,transparent)' }} />
+
+          <div className="absolute top-4 right-4 flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" style={{ animation: 'sBlink 2s ease-in-out infinite' }} />
+            <span className="font-mono text-[9px] tracking-widest text-emerald-400/70">SECURE</span>
+          </div>
+
+          <div className="flex items-center gap-3 mb-1.5">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-[12px] text-white relative overflow-hidden"
+              style={{ background: '#059669', fontFamily: 'Space Mono,monospace' }}>
+              CR
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg,rgba(255,255,255,.18),transparent)' }} />
+            </div>
+            <span className="font-bold text-[15px] text-slate-200" style={{ fontFamily: 'Space Mono,monospace', letterSpacing: '-0.3px' }}>
+              Code<span className="text-emerald-400">Review</span> AI
+            </span>
+          </div>
+
+          <p className="text-[11px] text-slate-600 mb-6" style={{ fontFamily: 'Space Mono,monospace' }}>
+             créer un compte
+          </p>
+
+          <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+            {error && (
+              <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2" style={{ fontFamily: 'Space Mono,monospace' }}>
+                <span className="text-red-500/60"></span>{error}
+              </div>
+            )}
+            {success && (
+              <div className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2" style={{ fontFamily: 'Space Mono,monospace' }}>
+                ✓ Compte créé ! Redirection...
+              </div>
+            )}
+
+            {[
+              { name: 'username', label: "Nom d'utilisateur", type: 'text', placeholder: 'john_dev' },
+              { name: 'email', label: 'Email', type: 'email', placeholder: 'toi@example.com' },
+              { name: 'password', label: 'Mot de passe', type: 'password', placeholder: '••••••••' },
+              { name: 'confirmPassword', label: 'Confirmer', type: 'password', placeholder: '••••••••' },
+            ].map(field => (
+              <div key={field.name}>
+                <label className="block text-[10px] text-slate-600 uppercase tracking-widest mb-1.5" style={{ fontFamily: 'Space Mono,monospace' }}>{field.label}</label>
+                <input
+                  type={field.type} name={field.name}
+                  value={form[field.name as keyof RegisterData]}
+                  onChange={handleChange} required placeholder={field.placeholder}
+                  className="w-full rounded-lg px-3 py-2.5 text-xs text-slate-200 outline-none transition-all duration-200 focus:ring-2 focus:ring-emerald-500/10"
+                  style={{ background: 'rgba(8,11,18,0.8)', border: '1px solid rgba(30,37,53,1)', fontFamily: 'Space Mono,monospace' }}
+                />
+              </div>
+            ))}
+
+            <button type="submit" disabled={loading || success}
+              className="mt-1 w-full rounded-xl py-2.5 text-sm text-white transition-all duration-200 hover:-translate-y-px active:scale-95 disabled:opacity-50"
+              style={{ background: success ? '#059669' : '#10b981', fontFamily: 'Space Mono,monospace' }}>
+              {loading ? '// Création...' : success ? '✓ Compte créé !' : "S'inscrire →"}
+            </button>
+          </form>
+
+          <p className="text-center text-[10px] text-slate-700 mt-4" style={{ fontFamily: 'Space Mono,monospace' }}>
+            Déjà un compte ?{' '}
+            <a href="/login" className="text-emerald-400/70 hover:text-emerald-400 transition-colors">Se connecter</a>
+          </p>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes gDrift { from{background-position:0 0} to{background-position:0 36px} }
+        @keyframes hPulse { 0%,100%{transform:scale(1);opacity:.6} 50%{transform:scale(1.03);opacity:1} }
+        @keyframes scan { 0%{top:4%;opacity:0} 5%{opacity:1} 95%{opacity:1} 100%{top:96%;opacity:0} }
+        @keyframes fReveal { from{opacity:0;transform:translateX(28px)} to{opacity:1;transform:translateX(0)} }
+        @keyframes fIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes sBlink { 0%,100%{opacity:1} 50%{opacity:.2} }
+      `}</style>
+    </div>
+  )
+}
